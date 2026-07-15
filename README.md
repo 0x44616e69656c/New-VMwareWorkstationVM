@@ -5,7 +5,7 @@
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-0078D6.svg)](https://www.microsoft.com/windows)
 [![VMware Workstation Pro](https://img.shields.io/badge/VMware%20Workstation%20Pro-26H1-607078.svg)](https://www.vmware.com/products/desktop-hypervisor.html)
 
-Unattended Windows Server 2025 deployment to VMware Workstation. One command. No ADK. No clicking through Setup.
+Unattended Windows Server 2025 deployment to VMware Workstation. One command. No ADK, Ansible, etc. No clicking through Setup.
 
 If you have ever sat there pressing Next through Windows Server Setup on a VM you know you are going to rebuild three days from now, this is for you.
 
@@ -218,6 +218,8 @@ These should be considered "won't fix" items. They were considered and this was 
 
 - Mastodon: [@daniel@infosec.exchange](https://infosec.exchange/@daniel)
 - Email: 0x44616e69656c {AT} [not-this]danielowen[.]com
+- LinkedIn: https://www.linkedin.com/in/danielowen/
+- Web: https://danielowen.com
 
 ## Contributing
 
