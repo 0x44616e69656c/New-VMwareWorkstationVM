@@ -10,15 +10,26 @@
     $pw = ConvertTo-SecureString 'P@ssw0rd!' -AsPlainText -Force
     .\New-VMwareWorkstationVM.ps1 -IsoPath "C:\ISOs\WS2025.iso" -AdminPassword $pw -VmStoragePath "C:\VMs"
 .EXAMPLE
+    # -NetworkType defaults to 'nat', which puts the adapter on VMnet8. Workstation always
+    # allocates a NAT network as a Class C and reserves fixed roles inside it:
+    #   net.1            host virtual network adapter (reserved)
+    #   net.2            NAT device -- the default gateway AND the DNS server
+    #   net.3 - net.127  free for static IP addresses
+    #   net.128 - net.254  virtual DHCP server's dynamic pool
+    # So -StaticIpAddress must be net.3-net.127 and -DefaultGateway must be net.2. An address
+    # in the DHCP pool risks a conflict; an address outside the subnet entirely leaves the
+    # guest unreachable and the online check times out. The subnet itself is assigned when
+    # Workstation is installed and differs per host -- look yours up in
+    # Edit > Virtual Network Editor > VMnet8. 192.168.220.0/24 below is illustrative only.
     $pw = ConvertTo-SecureString 'P@ssw0rd!' -AsPlainText -Force
     .\New-VMwareWorkstationVM.ps1 -IsoPath "C:\ISOs\WS2025.iso" -AdminPassword $pw `
         -VmName "LabServer01" -RamMB 8192 -DiskGB 120 -CpuCount 4 `
-        -VmStoragePath "C:\VMs" -StaticIpAddress "192.168.1.50" -DefaultGateway "192.168.1.1"
+        -VmStoragePath "C:\VMs" -StaticIpAddress "192.168.220.50" -DefaultGateway "192.168.220.2"
 .NOTES
-    Version:      1.0.0
+    Version:      1.0.2
     Author:       Daniel Owen
     Repository:   https://github.com/0x44616e69656c/New-VMwareWorkstationVM
-    Release Date: 2026-07-11
+    Release Date: 2026-07-17
     Requirements: VMware Workstation 17+, vmrun.exe, vmware-vdiskmanager.exe,
                   Windows ADK not required (uses built-in IMAPI2 for ISO creation).
                   Static IP requires the inbox vmxnet3 driver to be present in the
@@ -879,13 +890,16 @@ function Remove-VirtualDvdDrivesFromVmx {
         -not ($DeviceNames | Where-Object { $line -match "^\s*$([regex]::Escape($_))\." })
     }
 
-    # VMware's VMX parser mishandles a leading BOM, so write UTF-8 without one. This edit
-    # only takes effect on the VM's next full power cycle -- the running session keeps the
-    # devices (already disconnected by Disconnect-VirtualMachineCdRom) until then.
+    # VMware's VMX parser mishandles a leading BOM, so write UTF-8 without one. The caller
+    # invokes this ONLY after confirming the VM is powered off, which is what makes the edit
+    # stick: while vmware-vmx.exe is alive it owns the VMX and rewrites it from its
+    # in-memory device list at power-off, silently discarding anything written during the
+    # session. The caller restarts the VM immediately after this returns, so the removal is
+    # visible on that restart.
     [System.IO.File]::WriteAllText($VmxFilePath, ($remainingLines -join "`r`n"), $utf8NoBom)
 
     foreach ($deviceName in $DeviceNames) {
-        Write-Log "Removed CD/DVD drive '$deviceName' from VMX configuration (takes effect on next full power cycle)." -LogFilePath $LogFilePath
+        Write-Log "Removed CD/DVD drive '$deviceName' from the VMX while the VM is powered off; effective on the restart that follows." -LogFilePath $LogFilePath
     }
 }
 
@@ -1135,7 +1149,7 @@ try {
         }
     }
     else {
-        Write-Log "No -StaticIpAddress specified; DHCP in use. Installation takes 20-45 minutes. Monitor in VMware Workstation." -LogFilePath $logFilePath
+        Write-Log "No -StaticIpAddress specified; DHCP in use. Installation typically takes less than 15 minutes. Monitor in VMware Workstation." -LogFilePath $logFilePath
     }
 
     Write-Log "VMX: $vmxFilePath" -LogFilePath $logFilePath

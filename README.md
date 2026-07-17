@@ -19,9 +19,9 @@ A single PowerShell 5.1 script that takes a Windows Server ISO and produces a ru
 4. Writes a VMX configured for BIOS firmware, MBR partitions, NVMe storage, and vmxnet3 networking
 5. Starts the VM (headless by default, or with the Workstation console if you want to watch)
 6. Opens the VM in the Workstation GUI library automatically
-7. With a static IP: polls for the VM to come online, waits for the specialize pass to finish, ejects the installation ISOs, power-cycles the VM to delete the CD/DVD drive entries from the VMX entirely, and confirms the VM is back up
+7. With a static IP: polls for the VM to come online, waits out a fixed settle delay to give the specialize pass time to finish, ejects the installation ISOs, power-cycles the VM to delete the CD/DVD drive entries from the VMX entirely, and confirms the VM is back up
 
-That last step is not optional cleverness. VMware Workstation rewrites the VMX from its in-memory device list when a VM powers off, silently clobbering any edit made while it was running. The only way to persist a device-list change is to make it while the VM is fully off. So the script stops the VM softly, edits the VMX while nothing has it open, and starts it again. I'll admit I bled on this one just a bit. 
+That last step is not optional cleverness. VMware Workstation rewrites the VMX from its in-memory device list when a VM powers off, silently clobbering any edit made while it was running. The only way to persist a device-list change is to make it while the VM is fully off. So the script stops the VM softly, edits the VMX while nothing has it open, and starts it again. I'll admit I bled on this one just a bit.
 
 ## Screenshots
 
@@ -33,7 +33,7 @@ That last step is not optional cleverness. VMware Workstation rewrites the VMX f
 
 ![Windows Server installing inside the VM](images/Image2_Win.jpg)
 
-**3. Deployment complete.** Here is the payoff. Once the VM answers a ping, the script waits out the specialize pass, ejects the installation media, power-cycles to strip the CD/DVD drives from the VMX, and confirms the VM comes back online with nothing attached.
+**3. Deployment complete.** Here is the payoff. Once the VM answers a ping, the script waits out the settle delay, ejects the installation media, power-cycles to strip the CD/DVD drives from the VMX, and confirms the VM comes back online with nothing attached. This run took ten minutes start to finish.
 
 ![The tail of the deploy log showing a completed deployment](images/Image3_CLI.jpg)
 
@@ -48,7 +48,7 @@ The script locates `vmrun.exe` and `vmware-vdiskmanager.exe` automatically under
 
 ## Tested On
 
-- **VMware Workstation Pro 26.0.0.25388281 (version 26H1).** This should run on 17+. 26H1 is what I'm running so it is what I have to test against. The `vmrun` and `vmware-vdiskmanager` interfaces it depends on have been stable across major versions, so earlier or later builds are expected to work, but only 26H1 has been verified. Keep your software up to date. It's a good practice. 
+- **VMware Workstation Pro 26.0.0.25388281 (version 26H1).** This should run on 17+. 26H1 is what I'm running so it is what I have to test against. The `vmrun` and `vmware-vdiskmanager` interfaces it depends on have been stable across major versions, so earlier or later builds are expected to work, but only 26H1 has been verified. Keep your software up to date. It's a good practice.
 - **Windows Server 2025 evaluation media (`SERVER_EVAL_x64FRE`).** Full end-to-end deploys have been validated against evaluation media only. The retail and volume license paths (`-ProductKey` plus the `$imageName` switch) are wired up but have not yet been run on a live deploy. Run through [Image Name Verification](image-name-verification.md) before switching media.
 
 ## Quick Start
@@ -71,7 +71,7 @@ $pw = ConvertTo-SecureString 'P@ssw0rd1!' -AsPlainText -Force
     -VmStoragePath "D:\VMs"
 ```
 
-That creates a VM named `WS2025-Server` with 4 GB RAM, 2 vCPUs, 60 GB disk, and NAT networking on DHCP. Installation takes 20 to 45 minutes depending on your hardware. Monitor it in VMware Workstation. When it is done, the VM is sitting at a desktop with VMware Tools installed.
+That creates a VM named `WS2025-Server` with 4 GB RAM, 2 vCPUs, 60 GB disk, and NAT networking on DHCP. Installation typically takes less than 15 minutes. Monitor it in VMware Workstation. When it is done, the VM is sitting at a desktop with VMware Tools installed.
 
 ## Full Example With Static IP
 
@@ -147,7 +147,7 @@ Copy-paste the exact `ImageName` strings for the Desktop Experience variants of 
 
 ## Logs
 
-Every run produces two files in the log directory:
+Every run produces two files in the log directory, or one if the transcript could not start, which the script warns you about and carries on:
 
 - `VMDeploy_<timestamp>.csv` -- structured event log, columns: `Timestamp,Level,Message,ErrorDetail`. Import directly with `Import-Csv`.
 - `VMDeploy_<timestamp>_Transcript.txt` -- full PowerShell transcript of the run, including all host output, error records, and stack traces.
@@ -164,7 +164,7 @@ The VMX template is not arbitrary. Every choice here was reached by hitting a wa
 - `pciBridge0` plus `pciBridge4` through `pciBridge7` (pcieRootPort, 8 functions each) -- required for PCI device slot allocation on `virtualHW.version 19` regardless of whether `firmware` is `bios` or `efi`. Removing them produces "No PCIe slot available" on power-on.
 - `nvme0` for the OS disk -- `lsisas1068` (LSI SAS SCSI) cannot get a PCI slot under BIOS firmware on `virtualHW.version 19` on the test host, even with the pciBridge block present. NVMe is the inbox WS2025 disk driver and works cleanly.
 - `vmxnet3` NIC with a static MAC in VMware's manual-assignment range (`00:50:56:00:00:00` to `00:50:56:3F:FF:FF`) -- the answer file's `<Identifier>` for the TCPIP and DNS-Client components binds to that MAC, so the static IP configuration lands on the right adapter regardless of what Windows calls it.
-- `ulm.disableMitigations = "TRUE"` -- suppresses the Spectre/Meltdown performance mitigation popup on Hyper-V/VBS-enabled hosts (VMware KB 79832). Acceptable for short-lived lab VMs. This script is dangerous in multiple ways outside that scope and this is the least of those. 
+- `ulm.disableMitigations = "TRUE"` -- suppresses the Spectre/Meltdown performance mitigation popup on Hyper-V/VBS-enabled hosts (VMware KB 79832). Acceptable for short-lived lab VMs. This script is dangerous in multiple ways outside that scope and this is the least of those.
 - `guestOS = "windows2022srvnext-64"` -- the VMware Workstation 17.x identifier for Windows Server 2025.
 
 ## Things Worth Knowing Before You Deploy
@@ -180,23 +180,23 @@ The VMX template is not arbitrary. Every choice here was reached by hitting a wa
 ## Known Limitations
 
 These are documented, deliberate trade-offs for a lab deployment tool. Also known as why did he do that stupid thing?
-These should be considered "won't fix" items. They were considered and this was the best solution for the scope of this project. 
+These should be considered "won't fix" items. They were considered and this was the best solution for the scope of this project.
 
 - **AutoLogon** writes the Administrator password to `HKLM\...\Winlogon\DefaultPassword` during setup. Windows does not reliably clear it after the single logon completes.
 - **RDP is opened on all firewall profiles** (`<Profile>all</Profile>`). Narrow the rule after deployment if that concerns you.
 - **No WinRE/recovery partition.** The MBR layout uses two partitions: 350 MB System Reserved (active) and the OS. Changing this without getting it exactly right disables recovery; it was deliberately left out.
-- **`virtualHW.version 19`** (Workstation 17+ floor). It works. If you need a hardware version higher than 19 for a specific feature, expose it as a `-VirtualHWVersion` parameter and update the VMX template accordingly. Alternatively, and likely easier, just update the hardware version in the VMware GUI post deployment, but really this should be fine as is for most uses. 
+- **`virtualHW.version 19`** (Workstation 17+ floor). It works. If you need a hardware version higher than 19 for a specific feature, expose it as a `-VirtualHWVersion` parameter and update the VMX template accordingly. Alternatively, and likely easier, just update the hardware version in the VMware GUI post deployment, but really this should be fine as is for most uses.
 - **CPU side-channel mitigations are disabled by default** (`ulm.disableMitigations = "TRUE"`) on every VM the script creates. It is a lab!
 - **ICMP echo request is allowed from any source on all firewall profiles**, solely so the script can poll the VM by ping. This broadens discovery/probing exposure on bridged or public networks; narrow or remove the rule after deployment if that matters to you.
-- **VM online (ping reply) is treated as a stand-in for Setup completion, not proof of it.** `Wait-VirtualMachineOnline` only confirms the requested `-StaticIpAddress` answers ICMP; another host already using that address, or this VM mid-specialize, can satisfy it before the script ejects installation media and power-cycles the VM. A guest-authenticated, per-run marker-token check was designed as the fix (`vmrun fileExistsInGuest`/`copyFileFromGuestToHost` against a marker written by a `SetupComplete.cmd` hook) but was considered and not built. For a test deploy I decided it wasn't worth the trouble or added complexity. 
+- **VM online (ping reply) is treated as a stand-in for Setup completion, not proof of it.** `Wait-VirtualMachineOnline` only confirms the requested `-StaticIpAddress` answers ICMP; another host already using that address, or this VM mid-specialize, can satisfy it before the script ejects installation media and power-cycles the VM. A guest-authenticated, per-run marker-token check was designed as the fix (`vmrun fileExistsInGuest`/`copyFileFromGuestToHost` against a marker written by a `SetupComplete.cmd` hook) but was considered and not built. For a test deploy I decided it wasn't worth the trouble or added complexity.
 - **`-PostSetupDelayMinutes` is a fixed heuristic, not an observable completion signal.** Once the VM answers ping, the script waits a fixed number of minutes (default 5) before ejecting installation media, on the assumption that Setup's specialize pass and the silent VMware Tools install have finished by then. A slower host can still be mid-specialize when media is ejected; a faster host waits longer than it needs to.
 - **`-TempPath` and `-LogPath` get no restrictive ACL.** The script writes the plaintext answer XML/ISO into whatever directory permissions already apply there, so a shared or redirected path can expose the Administrator password before cleanup runs.
 - **Temp filenames are fixed, not per-run.** `autounattend.xml`/`autounattend.iso` share the same name under `-TempPath` across runs, so concurrent or overlapping deployments can overwrite or reuse another run's credential-bearing answer media.
 - **The Windows ISO and VMware Tools media are trusted with no integrity check.** The script does not verify a hash or signature before booting the ISO or running `setup.exe` from the Tools media; a substituted file executes with setup privileges.
-- **The image name is not validated by the script before VM artifacts are created.** `$imageName` must match an image name in the target ISO's `install.wim` exactly; a mismatch is not caught here but later, in Setup, after the answer ISO, VMDK, VM directory, and VMX already exist -- and it fails with a misleading "Setup has failed to validate the product key" error rather than a clear image-name error. `image-name-verification.md` documents the manual `Get-WindowsImage` pre-check to run before pointing the script at a new ISO. I considered adding a check to catch this early, but it would have required running as admin and I don't want that to be true. Just don't mess this up and we'll all be happy. 
-- **The quick-start examples use a well-known static password** (`P@ssw0rd1!`). Don't use sample passwords. If you are paranoid enough to care about this (you should be) you already know this. 
-- **A `vmrun start` that prints "Error" but exits 0 can fail an already-running deployment.** `vmrun` is not consistent about exit codes -- it can print an error line to stdout and still exit 0 -- so the start step treats any "Error" in the output as a failure and retries. On the rare occasion the VM actually started on the first attempt but `vmrun` also printed a benign "Error" line, the retry runs `vmrun start` again against a now-running VM, which genuinely errors; the retries then exhaust and the deployment is reported failed even though the VM is up. Trusting the exit code alone is worse (a real failed start that exits 0 would go undetected), so the output check stays. If a deploy reports a start failure, check VMware Workstation before re-running -- the VM may already be running.
-- **Not production** Please do not deploy production servers with this. There are dangerous security compromises in this deployment that are fine for a lab but stupid for production. But you wouldn't be running production workloads in VMware workstation anyway I hope. 
+- **The image name is not validated by the script before VM artifacts are created.** `$imageName` must match an image name in the target ISO's `install.wim` exactly; a mismatch is not caught here but later, in Setup, after the answer ISO, VMDK, VM directory, and VMX already exist -- and it fails with a misleading "Setup has failed to validate the product key" error rather than a clear image-name error. `image-name-verification.md` documents the manual `Get-WindowsImage` pre-check to run before pointing the script at a new ISO. I considered adding a check to catch this early, but it would have required running as admin and I don't want that to be true. Just don't mess this up and we'll all be happy.
+- **The quick-start examples use a well-known static password** (`P@ssw0rd1!`). Don't use sample passwords. If you are paranoid enough to care about this (you should be) you already know this.
+- **A `vmrun start` that prints "Error" but exits 0 can fail an already-running deployment.** `vmrun` is not consistent about exit codes -- it can print an error line to stdout and still exit 0 -- so the start step treats any "Error" in the output as a failure and retries. On the rare occasion the VM actually started on the first attempt but `vmrun` also printed a benign "Error" line, the retry runs `vmrun start` again against a now-running VM, which really does error; the retries then exhaust and the deployment is reported failed even though the VM is up. Trusting the exit code alone is worse (a real failed start that exits 0 would go undetected), so the output check stays. If a deploy reports a start failure, check VMware Workstation before re-running -- the VM may already be running.
+- **Not production** Please do not deploy production servers with this. There are dangerous security compromises in this deployment that are fine for a lab but stupid for production. But you wouldn't be running production workloads in VMware workstation anyway I hope.
 
 ## Troubleshooting
 
@@ -212,7 +212,7 @@ These should be considered "won't fix" items. They were considered and this was 
 
 **Answer ISO still on disk after the run** -- Expected if you did not supply `-StaticIpAddress` or the online check timed out. The script warns you and tells you where it is. Delete it; it contains the Administrator password in plain text.
 
-**Random fail** -- During testing I had one random fail I could not reproduce. I suspect it was some kind of timing issues. If you have an error that is not something covered in this file, maybe try deleting the VM and re-running the setup. Check all the known issues first before re-trying. 
+**Random fail** -- During testing I had one random fail I could not reproduce. I suspect it was some kind of timing issues. If you have an error that is not something covered in this file, maybe try deleting the VM and re-running the setup. Check all the known issues first before re-trying.
 
 ## Contact
 
