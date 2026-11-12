@@ -1,5 +1,7 @@
-journal.md
-gotchas.md
-updates.md
-.gitignore-publish
-changes.md
+# What your runs create in this folder. None of it belongs in a commit.
+
+# Your override file. When one is already there, Export-OverrideFile.ps1 writes its new file in a migrated folder under this one.
+/overrides/
+
+# The CSV run logs and transcripts.
+/logs

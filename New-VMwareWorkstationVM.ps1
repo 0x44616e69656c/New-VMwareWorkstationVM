@@ -6,6 +6,83 @@
     Generates an autounattend.xml answer file, packages it into a secondary
     bootable ISO mounted as a second CD drive, and starts the VM unattended.
     Optionally waits for the VM to come online by pinging a static IP address.
+
+    Settings you would otherwise change by editing this script go in an override file,
+    overrides\overrides.psd1 in the script's folder. A value given on the command line
+    wins over the file. OVERRIDE.md lists every key, its default and its permitted values.
+.PARAMETER IsoPath
+    Full path to the Windows Server 2025 ISO. Required.
+.PARAMETER AdminPassword
+    SecureString for the local Administrator account. Required.
+.PARAMETER VmName
+    VM folder name, VMX file name, VMDK name and Workstation display name. Defaults to
+    WS2025-Server. The override file can change its default.
+.PARAMETER VmStoragePath
+    Parent directory where the VM folder is created. Required. A relative path resolves
+    from the current location.
+.PARAMETER RamMB
+    RAM in MB, from 512 to 65536. Defaults to 4096. The override file can change its
+    default.
+.PARAMETER CpuCount
+    vCPUs, from 1 to 64. Defaults to 2. The override file can change its default.
+.PARAMETER DiskGB
+    OS disk in GB, from 20 to 2048, the MBR 2 TB cap. Defaults to 60. The override file
+    can change its default.
+.PARAMETER ComputerName
+    Windows host name, 1 to 15 letters, digits and hyphens, not starting or ending with
+    a hyphen. Defaults to WIN2025. The override file can change its default.
+.PARAMETER TimeZone
+    Windows time zone ID for the guest. tzutil /l lists the valid values. Defaults to
+    Pacific Standard Time. The override file can change its default.
+.PARAMETER Edition
+    Standard or Datacenter. Defaults to Standard. The override file can change its
+    default, and its ImageNameStandard and ImageNameDatacenter keys set the install
+    image name for each edition.
+.PARAMETER ProductKey
+    Optional product key. Omit it for evaluation media. Supply it for retail or volume
+    license media, or the activation screen stops the unattended install. The override
+    file can set it, and it is never written to a log.
+.PARAMETER NetworkType
+    nat, bridged or hostonly. Defaults to nat. The override file can change its default.
+.PARAMETER StaticIpAddress
+    Configures a static IP address in the guest and turns on the online check and the
+    media cleanup. No default.
+.PARAMETER SubnetMask
+    Subnet mask for the static IP address. Defaults to 255.255.255.0. The override file
+    can change its default.
+.PARAMETER DefaultGateway
+    Default gateway for the static IP address. No default. The override file can set
+    one.
+.PARAMETER DnsServer
+    DNS server for the static IP address. Defaults to 8.8.8.8. The override file can
+    change its default.
+.PARAMETER ShowConsole
+    Shows the Workstation console window instead of running headless. The override file
+    can turn it on by default.
+.PARAMETER TimeoutMinutes
+    How long to wait for the VM to come online after it starts, from 1 to 1440 minutes.
+    Defaults to 90. The override file can change its default.
+.PARAMETER PostSetupDelayMinutes
+    Settle delay after the first ping reply before the media is ejected, from 0 to 60
+    minutes. A ping reply only means TCP/IP is up, and the specialize pass may still be
+    running. Defaults to 5. The override file can change its default.
+.PARAMETER ShutdownTimeoutMinutes
+    How long to wait for the soft shutdown before giving up on the drive removal, from 1
+    to 30 minutes. Defaults to 5. The override file can change its default.
+.PARAMETER RestartTimeoutMinutes
+    How long to wait for the VM to come back online after the restart that follows the
+    drive removal, from 1 to 60 minutes. Defaults to 10. The override file can change
+    its default.
+.PARAMETER LogPath
+    Directory for the CSV log and the full transcript. Without it, the override file's
+    LogPath is used, and without that, a logs folder next to the script, not the working
+    directory. A relative path passed here resolves from the current location. A
+    relative LogPath in the override file resolves from the script's folder.
+.PARAMETER TempPath
+    Scratch directory for the answer XML and the bootable answer ISO. Without it, the
+    override file's TempPath is used, and without that, %TEMP%\VMDeploy. A relative path
+    passed here resolves from the current location. A relative TempPath in the override
+    file resolves from the script's folder.
 .EXAMPLE
     $pw = ConvertTo-SecureString 'P@ssw0rd!' -AsPlainText -Force
     .\New-VMwareWorkstationVM.ps1 -IsoPath "C:\ISOs\WS2025.iso" -AdminPassword $pw -VmStoragePath "C:\VMs"
@@ -25,19 +102,24 @@
     .\New-VMwareWorkstationVM.ps1 -IsoPath "C:\ISOs\WS2025.iso" -AdminPassword $pw `
         -VmName "LabServer01" -RamMB 8192 -DiskGB 120 -CpuCount 4 `
         -VmStoragePath "C:\VMs" -StaticIpAddress "192.168.220.50" -DefaultGateway "192.168.220.2"
+.OUTPUTS
+    None on the pipeline. Console lines, a CSV log VMDeploy_<timestamp>.csv and a
+    transcript VMDeploy_<timestamp>_Transcript.txt in the log folder, and the VM's
+    folder under -VmStoragePath. The exit code is non-zero when the deployment fails.
 .NOTES
-    Version:      1.0.2
+    Version:      1.1.0
     Author:       Daniel Owen
     Repository:   https://github.com/0x44616e69656c/New-VMwareWorkstationVM
-    Release Date: 2026-07-17
+    Release Date: 2026-11-12
     Requirements: VMware Workstation 17+, vmrun.exe, vmware-vdiskmanager.exe,
                   Windows ADK not required (uses built-in IMAPI2 for ISO creation).
                   Static IP requires the inbox vmxnet3 driver to be present in the
                   Windows Server 2025 media; without it the NIC is invisible during
                   the specialize pass and the static config silently falls back to DHCP.
                   The -Edition image names map to /IMAGE/NAME values that must EXACTLY match
-                  the target media; verify with 'dism /Get-WimInfo' and update the $imageName
-                  switch in the Variables region if they differ.
+                  the target media. Verify them with Get-WindowsImage and set the
+                  ImageNameStandard and ImageNameDatacenter keys in the override file if
+                  they differ.
                   VM firmware is BIOS with an MBR disk (not UEFI/GPT): UEFI Windows media
                   shows a "Press any key to boot from CD or DVD" prompt that headless vmrun
                   deployments can never answer, leaving the VM looping the EFI boot menu.
@@ -69,7 +151,7 @@
                   ping again. This power cycle is required because VMware Workstation
                   rewrites the VMX from its in-memory device list at power-off, silently
                   discarding any edit made while the VM is running -- confirmed via a live
-                  before/after VMX comparison (see gotchas.md 2026-06-12). If the soft stop
+                  before/after VMX comparison on 2026-06-12. If the soft stop
                   or power-off confirmation fails, the CD/DVD drives are left ejected but
                   still defined (the v0.4.3 end state) and the deployment is NOT failed. If
                   the post-removal restart fails, this IS treated as a deployment failure
@@ -97,8 +179,12 @@
                   -ErrorAction Stop instead. If Initialize-Log itself fails, the error is
                   written to stderr (no CSV/transcript exists yet) and the script exits
                   non-zero without further attempts to log.
+    Target Set Source: N/A
     Event Log Source: N/A (file CSV logging only)
+    Setup: N/A
 #>
+
+#Requires -Version 5.1
 
 [CmdletBinding()]
 param (
@@ -177,14 +263,11 @@ param (
     [ValidateRange(1, 60)]
     [int]$RestartTimeoutMinutes = 10,
 
-    # Anchored to the script's own directory (not the current working directory) so the
-    # CSV log and transcript always land next to the script regardless of where it is
-    # invoked from. A relative value passed explicitly still resolves from the working
-    # directory. If $PSScriptRoot is empty (e.g. the script body is run interactively
-    # rather than from a file), this falls back to a working-directory-relative '.\logs'.
-    [string]$LogPath = "$(if ($PSScriptRoot) { Join-Path $PSScriptRoot 'logs' } else { '.\logs' })",
+    # No default here. The shipped defaults for -LogPath and -TempPath are set in the
+    # Variables region, after the override file, and both are resolved to full paths there.
+    [string]$LogPath,
 
-    [string]$TempPath = "$env:TEMP\VMDeploy"
+    [string]$TempPath
 )
 
 #region Functions
@@ -333,6 +416,8 @@ function New-AutoUnattendXml {
         Justification = 'Pure function: builds and returns the answer-file XML string; changes no system state.')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '',
         Justification = 'autounattend.xml requires the Administrator password in plain text; the SecureString is decoded once in Main with BSTR zeroing and passed here as the already-decoded value.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingUsernameAndPasswordParams', '',
+        Justification = 'UserLocale is the answer file locale setting, not a user name. The password is covered by the suppression above.')]
     param (
         [string]$ComputerName,
         [string]$AdminPasswordPlainText,
@@ -343,7 +428,11 @@ function New-AutoUnattendXml {
         [string]$SubnetMask,
         [string]$DefaultGateway,
         [string]$DnsServer,
-        [string]$MacAddress
+        [string]$MacAddress,
+        [string]$InputLocale,
+        [string]$SystemLocale,
+        [string]$UserLocale,
+        [string]$Organization
     )
 
     # XML-escape every dynamic value before it is interpolated into the answer
@@ -359,6 +448,10 @@ function New-AutoUnattendXml {
     $xmlStaticIpAddress = ConvertTo-XmlText $StaticIpAddress
     $xmlDefaultGateway  = ConvertTo-XmlText $DefaultGateway
     $xmlDnsServer       = ConvertTo-XmlText $DnsServer
+    $xmlInputLocale     = ConvertTo-XmlText $InputLocale
+    $xmlSystemLocale    = ConvertTo-XmlText $SystemLocale
+    $xmlUserLocale      = ConvertTo-XmlText $UserLocale
+    $xmlOrganization    = ConvertTo-XmlText $Organization
 
     $networkXml = ''
     if ($StaticIpAddress) {
@@ -428,11 +521,11 @@ function New-AutoUnattendXml {
 
     <settings pass="windowsPE">
         <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-            <InputLocale>en-US</InputLocale>
-            <SystemLocale>en-US</SystemLocale>
+            <InputLocale>$xmlInputLocale</InputLocale>
+            <SystemLocale>$xmlSystemLocale</SystemLocale>
             <UILanguage>en-US</UILanguage>
             <UILanguageFallback>en-US</UILanguageFallback>
-            <UserLocale>en-US</UserLocale>
+            <UserLocale>$xmlUserLocale</UserLocale>
         </component>
         <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
             <DiskConfiguration>
@@ -488,7 +581,7 @@ function New-AutoUnattendXml {
                 $productKeyXml
                 <AcceptEula>true</AcceptEula>
                 <FullName>Administrator</FullName>
-                <Organization>Lab</Organization>
+                <Organization>$xmlOrganization</Organization>
             </UserData>
         </component>
     </settings>
@@ -726,6 +819,7 @@ function New-VmxConfiguration {
         [int]$CpuCount,
         [string]$NetworkType,
         [string]$MacAddress,
+        [string]$GuestOS,
         [string]$LogFilePath
     )
 
@@ -741,8 +835,10 @@ sata0:2.startConnected = "TRUE"
 "@
     }
 
-    # guestOS: "windows2022srvnext-64" is the VMware Workstation 17.x identifier for WS2025.
-    # If the VM shows a guest OS warning, update this value to match your Workstation version.
+    # -GuestOS comes from $guestOS in the Variables region. Its shipped value,
+    # "windows2022srvnext-64", is the VMware Workstation 17.x identifier for WS2025. If the
+    # VM shows a guest OS warning, set the GuestOS key in the override file to the value
+    # your Workstation version uses.
     $vmxContent = @"
 .encoding = "UTF-8"
 config.version = "8"
@@ -761,7 +857,7 @@ pciBridge7.present = "TRUE"
 pciBridge7.virtualDev = "pcieRootPort"
 pciBridge7.functions = "8"
 displayName = "$VmName"
-guestOS = "windows2022srvnext-64"
+guestOS = "$GuestOS"
 firmware = "bios"
 numvcpus = "$CpuCount"
 cpuid.coresPerSocket = "$CpuCount"
@@ -907,33 +1003,225 @@ function Remove-VirtualDvdDrivesFromVmx {
 
 #region Variables
 
+# This script's version, equal to the header's Version, which the offline suite checks.
+$scriptVersion = '1.1.0'
+
+# The shipped values of the answer file and VMX settings the override file can change.
+# Each is a Constant key in include\override-catalog.psd1, read from these lines by the
+# offline checks and the migration script, so each stays a plain assignment at this level.
+# The two install image names are in the $imageName switch further down.
+$guestOS      = 'windows2022srvnext-64'
+$inputLocale  = 'en-US'
+$systemLocale = 'en-US'
+$userLocale   = 'en-US'
+$organization = 'Lab'
+
+#region Override file
+# overrides\overrides.psd1 holds the user's standing settings, so an upgrade never touches
+# them. It is read before anything below uses a parameter, and a parameter the command
+# line bound keeps its value. Logging hasn't started yet, so every line is held here and
+# logged right after Initialize-Log, and a stop is held the same way. This script sets no
+# script-wide error preference (see the help's Requirements), so each step catches its
+# own errors. The assignments run here, at script level, so each parameter's own
+# validation attributes check the value. Inside a function they would set a local copy.
+$scriptFolderPath          = if ($PSScriptRoot) { $PSScriptRoot } else { '.' }
+$overrideReaderPath        = Join-Path -Path $scriptFolderPath -ChildPath 'include\OverrideFile.ps1'
+$overrideCatalogPath       = Join-Path -Path $scriptFolderPath -ChildPath 'include\override-catalog.psd1'
+$overrideReleaseTablePath  = Join-Path -Path $scriptFolderPath -ChildPath 'include\release-values.psd1'
+$overrideFilePath          = Join-Path -Path $scriptFolderPath -ChildPath 'overrides\overrides.psd1'
+$overrideInfoLines         = [System.Collections.Generic.List[string]]::new()
+$overrideWarningLines      = [System.Collections.Generic.List[string]]::new()
+$overrideStopLines         = [System.Collections.Generic.List[string]]::new()
+$overrideAppliedParameters = [System.Collections.Generic.List[string]]::new()
+$overrideValues            = @{}
+
+$overrideReaderLoaded = $false
+if (Test-Path -LiteralPath $overrideReaderPath -PathType Leaf) {
+    try {
+        . $overrideReaderPath
+        $overrideReaderFunctions = @(Get-Command -Name 'Get-OverrideFile', 'Get-OverrideParameterAssignment', 'Read-OverrideCatalog', 'ConvertTo-OverrideDisplayText', 'Get-OverrideChangedDefault' -CommandType Function -ErrorAction Stop)
+        $overrideReaderLoaded = ($overrideReaderFunctions.Count -eq 5)
+    }
+    catch {
+        $overrideReaderLoaded = $false
+    }
+}
+
+if (-not $overrideReaderLoaded) {
+    if (Test-Path -LiteralPath $overrideFilePath) {
+        $overrideStopLines.Add("Override file '$overrideFilePath' exists, but its reader '$overrideReaderPath' is missing or can't be loaded, so its settings can't be applied. Put include\OverrideFile.ps1 back from this release, or move the override file out of the overrides folder.")
+    }
+    else {
+        $overrideWarningLines.Add("The override file reader '$overrideReaderPath' is missing or can't be loaded. There is no override file at '$overrideFilePath', so the shipped settings apply.")
+    }
+}
+else {
+    $overrideFile = Get-OverrideFile -Path $overrideFilePath -CatalogPath $overrideCatalogPath
+    foreach ($overrideLine in $overrideFile.Info) { $overrideInfoLines.Add($overrideLine) }
+    foreach ($overrideLine in $overrideFile.Warnings) { $overrideWarningLines.Add($overrideLine) }
+    if ($overrideFile.Error) {
+        foreach ($overrideLine in ($overrideFile.Error -split '\r?\n')) { $overrideStopLines.Add($overrideLine) }
+    }
+    else {
+        $overrideValues = $overrideFile.Values
+        $overrideAssignmentResult = Get-OverrideParameterAssignment -OverrideFile $overrideFile -CatalogPath $overrideCatalogPath -BoundParameters $PSBoundParameters
+        foreach ($overrideLine in $overrideAssignmentResult.Warnings) { $overrideWarningLines.Add($overrideLine) }
+        if ($overrideAssignmentResult.Error) {
+            foreach ($overrideLine in ($overrideAssignmentResult.Error -split '\r?\n')) { $overrideStopLines.Add($overrideLine) }
+        }
+        else {
+            foreach ($overrideAssignment in $overrideAssignmentResult.Assignments) {
+                $overrideAssignmentValue = $overrideAssignment.Value
+                # A relative LogPath or TempPath from the file means the script's folder,
+                # not wherever the run was started from.
+                if ($overrideAssignment.ParameterName -in @('LogPath', 'TempPath') -and $overrideAssignmentValue -is [string]) {
+                    $overridePathIsRooted = $true
+                    try { $overridePathIsRooted = [System.IO.Path]::IsPathRooted($overrideAssignmentValue) } catch { $overridePathIsRooted = $true }
+                    if (-not $overridePathIsRooted) { $overrideAssignmentValue = Join-Path -Path $scriptFolderPath -ChildPath $overrideAssignmentValue }
+                }
+                try {
+                    Set-Variable -Name $overrideAssignment.ParameterName -Value $overrideAssignmentValue -ErrorAction Stop
+                    $overrideAppliedParameters.Add($overrideAssignment.ParameterName)
+                }
+                catch {
+                    # The refusal's own text quotes the value, which may be a secret, so it
+                    # isn't used.
+                    $overrideStopLines.Add("Override file '$overrideFilePath': -$($overrideAssignment.ParameterName) doesn't accept the value of $($overrideAssignment.Key). OVERRIDE.md lists the values it accepts.")
+                }
+            }
+
+            # One line for every key the command line also set. build-lab sets most of
+            # them on every call, so one line per key would bury the log.
+            $overrideShadowed = @($overrideAssignmentResult.Shadowed)
+            if ($overrideShadowed.Count -gt 0) {
+                $overrideCatalog = Read-OverrideCatalog -CatalogPath $overrideCatalogPath
+                $overrideShadowedTexts = foreach ($overrideShadowedKey in $overrideShadowed) {
+                    $overrideKeyIsSecret = (-not $overrideCatalog.Settings.ContainsKey($overrideShadowedKey.Key)) -or $overrideCatalog.Settings[$overrideShadowedKey.Key].Secret
+                    '{0}={1}' -f $overrideShadowedKey.Key, (ConvertTo-OverrideDisplayText -Value $overrideShadowedKey.BoundValue -Secret:$overrideKeyIsSecret)
+                }
+                $overrideInfoLines.Add(("Override file '{0}': the command line also sets {1} of its keys, and the command line wins: {2}." -f $overrideFilePath, $overrideShadowed.Count, (@($overrideShadowedTexts) -join ', ')))
+            }
+
+            if ($overrideValues.ContainsKey('GuestOS'))      { $guestOS      = $overrideValues['GuestOS'] }
+            if ($overrideValues.ContainsKey('InputLocale'))  { $inputLocale  = $overrideValues['InputLocale'] }
+            if ($overrideValues.ContainsKey('SystemLocale')) { $systemLocale = $overrideValues['SystemLocale'] }
+            if ($overrideValues.ContainsKey('UserLocale'))   { $userLocale   = $overrideValues['UserLocale'] }
+            if ($overrideValues.ContainsKey('Organization')) { $organization = $overrideValues['Organization'] }
+        }
+    }
+}
+
+# A shipped default that changed since the previous release gets one INFO line, unless
+# this run set that key, from the command line (as build-lab does for most of them) or
+# from the override file. Nothing here stops the run. A problem is a WARN.
+if ($overrideReaderLoaded -and $overrideStopLines.Count -eq 0) {
+    try {
+        $changedCatalogData = Import-PowerShellDataFile -LiteralPath $overrideCatalogPath -ErrorAction Stop
+        $changedReleaseTable = $null
+        if (Test-Path -LiteralPath $overrideReleaseTablePath -PathType Leaf) { $changedReleaseTable = Import-PowerShellDataFile -LiteralPath $overrideReleaseTablePath -ErrorAction Stop }
+        $changedSetKeys = [System.Collections.Generic.List[string]]::new()
+        foreach ($changedSetKey in @($overrideValues.get_Keys())) { $changedSetKeys.Add([string]$changedSetKey) }
+        $boundParameterNames = @($PSBoundParameters.get_Keys())
+        foreach ($changedCatalogKey in @($changedCatalogData['Settings'].get_Keys())) {
+            $changedCatalogEntry = $changedCatalogData['Settings'][$changedCatalogKey]
+            if ($changedCatalogEntry['Target'] -ceq 'Parameter' -and $boundParameterNames -contains $changedCatalogEntry['Name']) { $changedSetKeys.Add([string]$changedCatalogKey) }
+        }
+        $changedDefaultResult = Get-OverrideChangedDefault -Catalog $changedCatalogData -ReleaseTable $changedReleaseTable -CurrentVersion $scriptVersion -SetKey ([string[]]$changedSetKeys.ToArray())
+        foreach ($changedLine in @($changedDefaultResult.Info)) { if ($changedLine) { $overrideInfoLines.Add($changedLine) } }
+        foreach ($changedLine in @($changedDefaultResult.Warnings)) { if ($changedLine) { $overrideWarningLines.Add($changedLine) } }
+        if ($changedDefaultResult.Error) {
+            foreach ($changedLine in ($changedDefaultResult.Error -split '\r?\n')) { if ($changedLine) { $overrideWarningLines.Add($changedLine) } }
+        }
+    }
+    catch {
+        $overrideWarningLines.Add("Changed default: the override catalog or the release table couldn't be read ($($_.Exception.GetType().FullName)), so changed defaults aren't reported for this run.")
+    }
+}
+#endregion Override file
+
+#region Log, temp and VM folders
+# The command line, then the override file (applied above), then the shipped default.
+# Both values, and the mandatory -VmStoragePath, are then made full paths, so a relative one means the same folder to
+# New-Item and to the .NET file calls, which keep their own current directory after a
+# Set-Location. A command-line value is used as given, so a relative one resolves from
+# PowerShell's current location. If $PSScriptRoot is empty (the script's text was run
+# without its file, pasted into a console), the log folder falls back to '.\logs'.
+$logPathSource = 'the shipped default'
+if ($PSBoundParameters.ContainsKey('LogPath')) { $logPathSource = 'the command line' }
+elseif ($overrideAppliedParameters -contains 'LogPath') { $logPathSource = 'the override file' }
+$tempPathSource = 'the shipped default'
+if ($PSBoundParameters.ContainsKey('TempPath')) { $tempPathSource = 'the command line' }
+elseif ($overrideAppliedParameters -contains 'TempPath') { $tempPathSource = 'the override file' }
+
+if (-not $LogPath) { $LogPath = if ($PSScriptRoot) { Join-Path -Path $PSScriptRoot -ChildPath 'logs' } else { '.\logs' } }
+if (-not $TempPath) { $TempPath = Join-Path -Path $env:TEMP -ChildPath 'VMDeploy' }
+
+# A path that can't be resolved, such as one on a drive that doesn't exist, is held as a
+# stop. LogPath's is thrown before Initialize-Log, TempPath's and VmStoragePath's right
+# after it, before any other folder or file is created.
+$logPathStop = $null
+try { $LogPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogPath) }
+catch { $logPathStop = "LogPath '$LogPath' from $logPathSource can't be resolved to a full path, for example because its drive doesn't exist. Give a log folder on a drive this computer has." }
+$tempPathStop = $null
+try { $TempPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($TempPath) }
+catch { $tempPathStop = "TempPath '$TempPath' from $tempPathSource can't be resolved to a full path, for example because its drive doesn't exist. Give a temp folder on a drive this computer has." }
+$vmStoragePathStop = $null
+try { $VmStoragePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($VmStoragePath) }
+catch { $vmStoragePathStop = "VmStoragePath '$VmStoragePath' can't be resolved to a full path, for example because its drive doesn't exist. Give a VM storage folder on a drive this computer has." }
+#endregion Log, temp and VM folders
+
+# A path that couldn't be resolved is never used to build another, because Join-Path on a
+# missing drive fails before the held stop could be thrown, and under an inherited
+# $ErrorActionPreference of Stop that would end the run with no fixed message. The paths
+# built from it stay $null, and Main throws the stop before anything reads them.
 $runTimestamp       = Get-Date -Format 'yyyyMMdd_HHmmss'
-$vmDirectory        = Join-Path $VmStoragePath $VmName
-$vmxFilePath        = Join-Path $vmDirectory "$VmName.vmx"
-$vmdkFilePath       = Join-Path $vmDirectory "$VmName.vmdk"
-$logFilePath        = Join-Path $LogPath "VMDeploy_$runTimestamp.csv"
-$transcriptFilePath = Join-Path $LogPath "VMDeploy_${runTimestamp}_Transcript.txt"
-$answerTempDir      = Join-Path $TempPath 'autounattend'
-$answerXmlPath      = Join-Path $answerTempDir 'autounattend.xml'
-$answerIsoPath      = Join-Path $TempPath 'autounattend.iso'
+$vmDirectory        = $null
+$vmxFilePath        = $null
+$vmdkFilePath       = $null
+$logFilePath        = $null
+$transcriptFilePath = $null
+$answerTempDir      = $null
+$answerXmlPath      = $null
+$answerIsoPath      = $null
+if (-not $vmStoragePathStop) {
+    $vmDirectory  = Join-Path $VmStoragePath $VmName
+    $vmxFilePath  = Join-Path $vmDirectory "$VmName.vmx"
+    $vmdkFilePath = Join-Path $vmDirectory "$VmName.vmdk"
+}
+if (-not $logPathStop) {
+    $logFilePath        = Join-Path $LogPath "VMDeploy_$runTimestamp.csv"
+    $transcriptFilePath = Join-Path $LogPath "VMDeploy_${runTimestamp}_Transcript.txt"
+}
+if (-not $tempPathStop) {
+    $answerTempDir = Join-Path $TempPath 'autounattend'
+    $answerXmlPath = Join-Path $answerTempDir 'autounattend.xml'
+    $answerIsoPath = Join-Path $TempPath 'autounattend.iso'
+}
 $vmMacAddress       = New-VMwareMacAddress
 
 # WS2025 WIM edition names (Desktop Experience), selected via /IMAGE/NAME -- stable across
 # media regardless of how install.wim was assembled.
-# IMPORTANT: these strings MUST be set to match the edition names in YOUR media EXACTLY
-# (bracketing and casing included). If they do not match, Windows Setup falls back to
-# image index 1 (Server Core) and unattended setup fails with "Setup has failed to
-# validate the product key" rather than prompting interactively. Obtain the exact names
-# for the target media and update the two values below if they differ:
+# IMPORTANT: the name MUST match the edition name in YOUR media EXACTLY (bracketing and
+# casing included). If it does not match, Windows Setup falls back to image index 1
+# (Server Core) and unattended setup fails with "Setup has failed to validate the product
+# key" rather than prompting interactively. Obtain the exact names for the target media
 #   Get-WindowsImage -ImagePath <mounted-ISO-drive>:\sources\install.wim
+# and, if they differ, set the ImageNameStandard and ImageNameDatacenter keys in the
+# override file rather than editing the two values below, which are the shipped defaults.
 # On evaluation media (sources\ei.cfg contains "[Channel]" "eval"), the names include
 # "Evaluation", e.g. "Windows Server 2025 Standard Evaluation (Desktop Experience)" --
 # confirmed against a SERVER_EVAL_x64FRE ISO. On VL/retail media the names typically
 # omit "Evaluation"; re-verify if you switch media.
+# Keep the switch in this exact shape, two clauses each holding one quoted string, because
+# the offline checks and the migration script read the two names from it.
 $imageName = switch ($Edition) {
     'Standard'   { 'Windows Server 2025 Standard Evaluation (Desktop Experience)' }
     'Datacenter' { 'Windows Server 2025 Datacenter Evaluation (Desktop Experience)' }
 }
+# The override file's image name for the edition in use, applied after the switch so the
+# switch can't reset it.
+if ($Edition -eq 'Standard' -and $overrideValues.ContainsKey('ImageNameStandard')) { $imageName = $overrideValues['ImageNameStandard'] }
+if ($Edition -eq 'Datacenter' -and $overrideValues.ContainsKey('ImageNameDatacenter')) { $imageName = $overrideValues['ImageNameDatacenter'] }
 
 #endregion Variables
 
@@ -944,6 +1232,10 @@ $transcriptStarted  = $false
 $logInitialized     = $false
 
 try {
+    # A LogPath that couldn't be resolved stops here, before any log exists, so the catch
+    # below writes it to the error stream.
+    if ($logPathStop) { throw $logPathStop }
+
     Initialize-Log -LogFilePath $logFilePath
     $logInitialized = $true
 
@@ -955,6 +1247,17 @@ try {
     catch {
         Write-Log "Could not start transcript at '$transcriptFilePath'." -LogFilePath $logFilePath -Level 'WARN' -ErrorRecord $_
     }
+
+    # The override file's lines, held since the Variables region, and its stops. The stops
+    # come before any folder, file or VM is created.
+    foreach ($overrideLine in $overrideInfoLines) { Write-Log $overrideLine -LogFilePath $logFilePath }
+    foreach ($overrideLine in $overrideWarningLines) { Write-Log $overrideLine -LogFilePath $logFilePath -Level 'WARN' }
+    if ($overrideStopLines.Count -gt 0) {
+        foreach ($overrideLine in $overrideStopLines) { Write-Log $overrideLine -LogFilePath $logFilePath -Level 'ERROR' }
+        throw 'The override settings can''t be applied, so the run stopped before any change. The ERROR lines above say what to fix.'
+    }
+    if ($tempPathStop) { throw $tempPathStop }
+    if ($vmStoragePathStop) { throw $vmStoragePathStop }
 
     foreach ($directory in @($TempPath, $answerTempDir, $vmDirectory)) {
         if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
@@ -1002,7 +1305,11 @@ try {
         -SubnetMask           $SubnetMask `
         -DefaultGateway       $DefaultGateway `
         -DnsServer            $DnsServer `
-        -MacAddress           $vmMacAddress
+        -MacAddress           $vmMacAddress `
+        -InputLocale          $inputLocale `
+        -SystemLocale         $systemLocale `
+        -UserLocale           $userLocale `
+        -Organization         $organization
 
     # Write without a BOM (consistent with the VMX); the XML prolog already declares UTF-8
     [System.IO.File]::WriteAllText($answerXmlPath, $xmlContent, (New-Object System.Text.UTF8Encoding $false))
@@ -1049,6 +1356,7 @@ try {
         -CpuCount           $CpuCount `
         -NetworkType        $NetworkType `
         -MacAddress         $vmMacAddress `
+        -GuestOS            $guestOS `
         -LogFilePath        $logFilePath
 
     $vmrunStartArgs = [System.Collections.Generic.List[string]]@('-T', 'ws', 'start', $vmxFilePath)
@@ -1180,8 +1488,9 @@ finally {
     # VMware while sata0:1 is connected, so deletion only succeeds once the VM came
     # online and the eject above released the lock; if not, it is still mounted and
     # this Remove-Item attempt will fail (e.g. -StaticIpAddress not used, the online
-    # check timed out, or the eject itself failed) -- only warn in that case.
-    if (Test-Path $answerIsoPath) {
+    # check timed out, or the eject itself failed) -- only warn in that case. The path is
+    # $null when -TempPath couldn't be resolved, and there is nothing to delete then.
+    if ($answerIsoPath -and (Test-Path -LiteralPath $answerIsoPath)) {
         try {
             Remove-Item -Path $answerIsoPath -Force -ErrorAction Stop
             Write-Log "Answer file ISO deleted: $answerIsoPath" -LogFilePath $logFilePath
