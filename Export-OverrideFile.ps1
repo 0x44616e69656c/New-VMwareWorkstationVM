@@ -64,9 +64,10 @@
     Export-OverrideFile_<yyyyMMdd-HHmmss>.csv in -LogPath, and the override file. Exit
     code 0 on success or after -WhatIf, 1 on any failure.
 .NOTES
-    Version: 1.1.0
+    Version: 1.2.0
     Author: Daniel Owen
-    Release Date: 2026-11-12
+    Release Date: 2026-11-25
+    SPDX-License-Identifier: MIT
     Requirements: Windows PowerShell 5.1. include\OverrideFile.ps1, include\Logging.ps1,
         include\Sanitization.ps1, include\override-catalog.psd1 and
         include\release-values.psd1, and this release's New-VMwareWorkstationVM.ps1,
@@ -74,6 +75,8 @@
     Target Set Source: the older copy's New-VMwareWorkstationVM.ps1, given by -SourcePath
     Event Log Source: N/A
     Setup: N/A
+.LINK
+    https://github.com/0x44616e69656c/New-VMwareWorkstationVM
 #>
 
 #Requires -Version 5.1
@@ -297,7 +300,7 @@ function Get-ShippedDisplayText {
 #region Variables
 
 $scriptName = 'Export-OverrideFile.ps1'
-$scriptVersion = '1.1.0'
+$scriptVersion = '1.2.0'
 $runStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 if (-not $LogPath) { $LogPath = Join-Path -Path $PSScriptRoot -ChildPath 'logs' }
 $LogPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogPath)

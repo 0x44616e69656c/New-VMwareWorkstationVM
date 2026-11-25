@@ -13,7 +13,8 @@
 .PARAMETER IsoPath
     Full path to the Windows Server 2025 ISO. Required.
 .PARAMETER AdminPassword
-    SecureString for the local Administrator account. Required.
+    SecureString for the local Administrator account. Required. An empty password stops
+    the run before the VM or any of its files is created.
 .PARAMETER VmName
     VM folder name, VMX file name, VMDK name and Workstation display name. Defaults to
     WS2025-Server. The override file can change its default.
@@ -43,7 +44,12 @@
     license media, or the activation screen stops the unattended install. The override
     file can set it, and it is never written to a log.
 .PARAMETER NetworkType
-    nat, bridged or hostonly. Defaults to nat. The override file can change its default.
+    The Workstation network the VM's adapter joins. nat, bridged, hostonly, or a VMnet by
+    name, VMnet0 to VMnet99 with no leading zero, such as VMnet2. Any letter case works.
+    The VMX and the log get the spelling shown here. VMnet0, VMnet1 and VMnet8 are
+    taken as bridged, hostonly and nat. A custom VMnet must already exist in the Virtual
+    Network Editor. The script never creates or changes one. Defaults to nat. The
+    override file can change its default.
 .PARAMETER StaticIpAddress
     Configures a static IP address in the guest and turns on the online check and the
     media cleanup. No default.
@@ -60,17 +66,17 @@
     Shows the Workstation console window instead of running headless. The override file
     can turn it on by default.
 .PARAMETER TimeoutMinutes
-    How long to wait for the VM to come online after it starts, from 1 to 1440 minutes.
+    The longest wait for the VM to come online after it starts, from 1 to 1440 minutes.
     Defaults to 90. The override file can change its default.
 .PARAMETER PostSetupDelayMinutes
     Settle delay after the first ping reply before the media is ejected, from 0 to 60
     minutes. A ping reply only means TCP/IP is up, and the specialize pass may still be
     running. Defaults to 5. The override file can change its default.
 .PARAMETER ShutdownTimeoutMinutes
-    How long to wait for the soft shutdown before giving up on the drive removal, from 1
+    The longest wait for the soft shutdown before giving up on the drive removal, from 1
     to 30 minutes. Defaults to 5. The override file can change its default.
 .PARAMETER RestartTimeoutMinutes
-    How long to wait for the VM to come back online after the restart that follows the
+    The longest wait for the VM to come back online after the restart that follows the
     drive removal, from 1 to 60 minutes. Defaults to 10. The override file can change
     its default.
 .PARAMETER LogPath
@@ -87,8 +93,10 @@
     $pw = ConvertTo-SecureString 'P@ssw0rd!' -AsPlainText -Force
     .\New-VMwareWorkstationVM.ps1 -IsoPath "C:\ISOs\WS2025.iso" -AdminPassword $pw -VmStoragePath "C:\VMs"
 .EXAMPLE
-    # -NetworkType defaults to 'nat', which puts the adapter on VMnet8. Workstation always
-    # allocates a NAT network as a Class C and reserves fixed roles inside it:
+    # -NetworkType defaults to 'nat', which puts the adapter on VMnet8. A VMnet by name,
+    # such as -NetworkType VMnet2, puts it on that VMnet instead, and the rules below are
+    # NAT's only. Workstation always allocates a NAT network as a Class C and reserves
+    # fixed roles inside it:
     #   net.1            host virtual network adapter (reserved)
     #   net.2            NAT device -- the default gateway AND the DNS server
     #   net.3 - net.127  free for static IP addresses
@@ -107,10 +115,10 @@
     transcript VMDeploy_<timestamp>_Transcript.txt in the log folder, and the VM's
     folder under -VmStoragePath. The exit code is non-zero when the deployment fails.
 .NOTES
-    Version:      1.1.0
+    Version:      1.2.0
     Author:       Daniel Owen
-    Repository:   https://github.com/0x44616e69656c/New-VMwareWorkstationVM
-    Release Date: 2026-11-12
+    Release Date: 2026-11-25
+    SPDX-License-Identifier: MIT
     Requirements: VMware Workstation 17+, vmrun.exe, vmware-vdiskmanager.exe,
                   Windows ADK not required (uses built-in IMAPI2 for ISO creation).
                   Static IP requires the inbox vmxnet3 driver to be present in the
@@ -182,6 +190,8 @@
     Target Set Source: N/A
     Event Log Source: N/A (file CSV logging only)
     Setup: N/A
+.LINK
+    https://github.com/0x44616e69656c/New-VMwareWorkstationVM
 #>
 
 #Requires -Version 5.1
@@ -189,7 +199,7 @@
 [CmdletBinding()]
 param (
     [Parameter(Mandatory)]
-    [ValidateScript({ Test-Path $_ -PathType Leaf })]
+    [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
     [string]$IsoPath,
 
     [Parameter(Mandatory)]
@@ -221,7 +231,10 @@ param (
     [ValidatePattern('^([A-Z0-9]{5}-){4}[A-Z0-9]{5}$')]
     [string]$ProductKey,
 
-    [ValidateSet('nat', 'bridged', 'hostonly')]
+    # nat, bridged, hostonly, or VMnet0 to VMnet99 with no leading zero, in any letter
+    # case. \A and \z refuse a trailing newline, which $ would let through. No
+    # ArgumentCompleter: the OVERRIDE.md generator refuses an attribute it doesn't know.
+    [ValidatePattern('\A(nat|bridged|hostonly|VMnet(0|[1-9][0-9]?))\z')]
     [string]$NetworkType = 'nat',
 
     [ValidatePattern('^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$')]
@@ -389,6 +402,59 @@ function ConvertTo-CidrPrefixLength {
     return ($binaryString.ToCharArray() | Where-Object { $_ -eq '1' }).Count
 }
 
+function ConvertTo-VmxNetworkSetting {
+    # Pure. Takes a -NetworkType value and returns its canonical name, the VMX
+    # connectionType, whether a VMnet0, VMnet1 or VMnet8 spelling was taken as bridged,
+    # hostonly or nat (and which spelling), and the VMX lines for ethernet0's network. The
+    # value is matched ignoring case, as the parameter's ValidatePattern matches it.
+    # Anything else throws, since every caller passes a value the parameter accepted.
+    param (
+        [string]$NetworkType
+    )
+
+    $networkMatch = [regex]::Match($NetworkType, '\A(?:(?<name>nat|bridged|hostonly)|vmnet(?<number>0|[1-9][0-9]?))\z', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if (-not $networkMatch.Success) {
+        throw "-NetworkType '$NetworkType' is not nat, bridged, hostonly or VMnet0 to VMnet99."
+    }
+
+    $mappedFrom = $null
+    if ($networkMatch.Groups['name'].Success) {
+        $canonicalName = $networkMatch.Groups['name'].Value.ToLowerInvariant()
+    }
+    else {
+        $vmnetName = 'VMnet' + $networkMatch.Groups['number'].Value
+        # The three VMnets that already have a name are written by that name, so they get
+        # the VMX line the named types have always had.
+        $canonicalName = switch ($vmnetName) {
+            'VMnet0' { 'bridged' }
+            'VMnet1' { 'hostonly' }
+            'VMnet8' { 'nat' }
+            default  { $vmnetName }
+        }
+        if ($canonicalName -cne $vmnetName) { $mappedFrom = $vmnetName }
+    }
+
+    if ($canonicalName -cin @('nat', 'bridged', 'hostonly')) {
+        $connectionType = $canonicalName
+        $vmxLines = @("ethernet0.connectionType = `"$canonicalName`"")
+    }
+    else {
+        # Any other VMnet gets connectionType "custom" and an ethernet0.vnet line naming
+        # it. No live run has confirmed these two lines yet, so read the VMX after the
+        # first build on a custom VMnet, including after the power cycle.
+        $connectionType = 'custom'
+        $vmxLines = @('ethernet0.connectionType = "custom"', "ethernet0.vnet = `"$canonicalName`"")
+    }
+
+    return [pscustomobject]@{
+        Name           = $canonicalName
+        ConnectionType = $connectionType
+        MappingApplied = ($null -ne $mappedFrom)
+        MappedFrom     = $mappedFrom
+        VmxLines       = [string[]]$vmxLines
+    }
+}
+
 function New-VMwareMacAddress {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Pure function: builds and returns a MAC string; changes no system state.')]
@@ -409,6 +475,17 @@ function ConvertTo-XmlText {
     # A [string]-typed parameter coerces $null to '' at bind time, so no null
     # guard is needed here: an omitted or $null argument arrives as ''.
     return [System.Security.SecurityElement]::Escape($Value)
+}
+
+function Test-SecureStringEmpty {
+    # True when the SecureString is $null or has no characters. Only its Length is read,
+    # so the value is never decoded. A password of only whitespace is not empty. It is a
+    # weak password, and weak passwords are allowed.
+    param (
+        [SecureString]$SecureValue
+    )
+
+    return ($null -eq $SecureValue -or $SecureValue.Length -eq 0)
 }
 
 function New-AutoUnattendXml {
@@ -741,8 +818,8 @@ public static class IsoStreamHelper {
         }
         # Remove any partial ISO if the write did not complete, so a re-run cannot
         # boot from a truncated, password-bearing answer disk.
-        if (-not $isoWritten -and (Test-Path $DestinationIsoPath)) {
-            Remove-Item -Path $DestinationIsoPath -Force -ErrorAction SilentlyContinue
+        if (-not $isoWritten -and (Test-Path -LiteralPath $DestinationIsoPath)) {
+            Remove-Item -LiteralPath $DestinationIsoPath -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -825,6 +902,9 @@ function New-VmxConfiguration {
 
     Write-Log "Writing VMX configuration: $VmxPath" -LogFilePath $LogFilePath
 
+    # One line for nat, bridged and hostonly, as before, and two for a custom VMnet.
+    $networkVmxText = (ConvertTo-VmxNetworkSetting -NetworkType $NetworkType).VmxLines -join "`n"
+
     $toolsIsoBlock = ''
     if ($VMwareToolsIsoPath) {
         $toolsIsoBlock = @"
@@ -876,7 +956,7 @@ sata0:1.fileName = "$($AnswerIsoPath.Replace('\','/'))"
 sata0:1.startConnected = "TRUE"
 $toolsIsoBlock
 ethernet0.present = "TRUE"
-ethernet0.connectionType = "$NetworkType"
+$networkVmxText
 ethernet0.virtualDev = "vmxnet3"
 ethernet0.wakeOnPcktRcv = "FALSE"
 ethernet0.address = "$MacAddress"
@@ -894,6 +974,10 @@ nvram = "$VmName.nvram"
 # VMs; reconsider if these VMs ever handle sensitive data on a shared host.
 ulm.disableMitigations = "TRUE"
 "@
+
+    # The here-string takes its line breaks from this file, which a checkout may have
+    # turned into CRLF. The network lines were joined with LF, so they follow suit.
+    if ($vmxContent.Contains("`r`n")) { $vmxContent = $vmxContent -replace '(?<!\r)\n', "`r`n" }
 
     # VMware's VMX parser mishandles a leading BOM, so write UTF-8 without one
     [System.IO.File]::WriteAllText($VmxPath, $vmxContent, (New-Object System.Text.UTF8Encoding $false))
@@ -1004,7 +1088,7 @@ function Remove-VirtualDvdDrivesFromVmx {
 #region Variables
 
 # This script's version, equal to the header's Version, which the offline suite checks.
-$scriptVersion = '1.1.0'
+$scriptVersion = '1.2.0'
 
 # The shipped values of the answer file and VMX settings the override file can change.
 # Each is a Constant key in include\override-catalog.psd1, read from these lines by the
@@ -1259,6 +1343,15 @@ try {
     if ($tempPathStop) { throw $tempPathStop }
     if ($vmStoragePathStop) { throw $vmStoragePathStop }
 
+    # An empty password binds. Pressing Enter at the prompt gives a SecureString with no
+    # characters. A string never binds to a SecureString, so '' or '   ' on the command
+    # line is refused by PowerShell before this script runs. Checked here, after the log
+    # starts and before the temp and VM folders, the answer file or the VM is created.
+    # The value is never printed. Whitespace only is not empty, and is allowed.
+    if (Test-SecureStringEmpty -SecureValue $AdminPassword) {
+        throw '-AdminPassword is empty. The answer file would set a blank Administrator password, so the run stopped before the VM or any of its files was created. Run it again and give a password.'
+    }
+
     foreach ($directory in @($TempPath, $answerTempDir, $vmDirectory)) {
         if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
             $null = New-Item -ItemType Directory -Path $directory -Force -ErrorAction Stop
@@ -1267,8 +1360,12 @@ try {
 
     Write-Log "=== VMware Workstation Unattended Deploy: $VmName ===" -LogFilePath $logFilePath
     Write-Log "ISO: $IsoPath | Edition: $Edition (image '$imageName') | RAM: $RamMB MB | CPU: $CpuCount | Disk: $DiskGB GB" -LogFilePath $logFilePath
+    $networkSetting = ConvertTo-VmxNetworkSetting -NetworkType $NetworkType
+    if ($networkSetting.ConnectionType -ceq 'custom') { Write-Log "Network: $($networkSetting.Name) (custom)" -LogFilePath $logFilePath }
+    else { Write-Log "Network: $($networkSetting.Name)" -LogFilePath $logFilePath }
+    if ($networkSetting.MappingApplied) { Write-Log "Network: $($networkSetting.MappedFrom) is taken as $($networkSetting.Name)." -LogFilePath $logFilePath }
 
-    if (Test-Path $vmxFilePath) {
+    if (Test-Path -LiteralPath $vmxFilePath) {
         throw "VMX file already exists at '$vmxFilePath'. Remove the existing VM or choose a different -VmName."
     }
 
@@ -1277,7 +1374,7 @@ try {
 
     $vmwareInstallDir  = Split-Path $vmrunPath -Parent
     $vmwareToolsIsoPath = Join-Path $vmwareInstallDir 'windows.iso'
-    if (-not (Test-Path $vmwareToolsIsoPath)) {
+    if (-not (Test-Path -LiteralPath $vmwareToolsIsoPath)) {
         Write-Log "VMware Tools ISO (windows.iso) not found alongside vmrun.exe. Proceeding without it." -LogFilePath $logFilePath -Level 'WARN'
         $vmwareToolsIsoPath = $null
     }
@@ -1326,7 +1423,7 @@ try {
 
     # Remove plain-text answer file now that the ISO is built
     try {
-        Remove-Item -Path $answerXmlPath -Force -ErrorAction Stop
+        Remove-Item -LiteralPath $answerXmlPath -Force -ErrorAction Stop
         Write-Log "Plain-text answer file removed from disk." -LogFilePath $logFilePath
     }
     catch {
@@ -1492,14 +1589,14 @@ finally {
     # $null when -TempPath couldn't be resolved, and there is nothing to delete then.
     if ($answerIsoPath -and (Test-Path -LiteralPath $answerIsoPath)) {
         try {
-            Remove-Item -Path $answerIsoPath -Force -ErrorAction Stop
+            Remove-Item -LiteralPath $answerIsoPath -Force -ErrorAction Stop
             Write-Log "Answer file ISO deleted: $answerIsoPath" -LogFilePath $logFilePath
         }
         catch {
             Write-Log "Could not delete answer file ISO '$answerIsoPath' (likely still mounted by the VM)." -LogFilePath $logFilePath -Level 'WARN' -ErrorRecord $_
         }
 
-        if (Test-Path $answerIsoPath) {
+        if (Test-Path -LiteralPath $answerIsoPath) {
             Write-Log ("Answer file ISO retained at '$answerIsoPath'. It contains the Administrator " +
                 "password in plain text -- delete it manually once the VM no longer has it mounted.") `
                 -LogFilePath $logFilePath -Level 'WARN'

@@ -1,6 +1,27 @@
+# Upgrading to 1.2.0
+
+## From 1.1
+
+Nothing needs moving. Your settings already live in `overrides\overrides.psd1`, so the upgrade is a `git pull`, or a fresh copy plus your `overrides` folder, as [Next time](#next-time) at the end of this page shows.
+
+What's different once you're on 1.2.0.
+
+- **An empty password stops the run.** An `-AdminPassword` with nothing in it, which is what pressing Enter at the prompt gives you, now stops the run before the VM or any of its files is created. 1.1.0 carried on, and its answer file would have set a blank Administrator password. A password made of spaces still goes through.
+- **Paths with square brackets are taken as written.** 1.1.0 read a bracket in a path as a wildcard. With one in the temp folder's path, such as `D:\Lab[2]\temp`, the delete of the answer files that hold the Administrator password matched nothing, and the log said they were removed while they stayed on disk, with no WARN. If you ever gave `-TempPath` or the override file's `TempPath` a bracket, look in that folder for `autounattend.xml` and `autounattend.iso` and delete them. The default, `%TEMP%\VMDeploy`, was never affected, because a Windows user name can't contain a bracket. An `-IsoPath` in a folder with brackets, which 1.1.0 refused, now works.
+- **An example override file.** `examples\overrides.psd1` lists every setting, commented out at its shipped value. Copy it into `overrides\` to start a file of your own. The README's [Override File](README.md#override-file) section has a command that does it and leaves a file you already have alone. If you're moving edits from an older copy with `Export-OverrideFile.ps1`, run that first. It writes to a separate folder when `overrides\overrides.psd1` already exists.
+- **Custom VMnets.** `-NetworkType` and the override file's `NetworkType` take a VMnet by name, `VMnet0` to `VMnet99`, as well as `nat`, `bridged` and `hostonly`. Every value that worked in 1.1 still works. The VMnet has to exist already, and the README's [Custom VMnets](README.md#custom-vmnets) section says what the host needs. build-lab's custom VMnets need this release.
+- **`-NetworkType` no longer tab-completes, and the VMX gets its value in lower case.** A script that passes `NAT` still works. The VMX now says `nat` where 1.1 wrote `NAT`.
+- **Population settings get sent to the right file.** `Population` and `DomainAdminCount` in this project's override file stop the run with a message naming new-AdDomain's override file, and `DeferPopulation` and `PopulationTimeoutMinutes` name build-lab's. Move them there.
+
+1.2.0 changes no shipped default, so your first run logs no line about a changed default.
+
+## From 1.0.2, 1.0.1 or 1.0
+
+Follow [Upgrading to 1.1.0](#upgrading-to-110) below with a 1.2.0 copy. The steps are the same, and the changes in [From 1.1](#from-11) apply as well.
+
 # Upgrading to 1.1.0
 
-> **Not tested yet.** These steps haven't been through a live run. Until they have, keep your old folder until the new one has built a VM for you.
+> **Tested live on 2026-11-11.** Two edited copies of 1.0.2 went through these steps, and each new folder then built a VM with the settings it carried across. The migration has run against 1.0.1 and 1.0 in the offline tests only. Keep your old folder until the new one has built a VM for you.
 
 1.1.0 moves every setting you might change out of the script and into an override file, `overrides\overrides.psd1`, that upgrades leave alone. [OVERRIDE.md](OVERRIDE.md) lists every setting. From this release on, an upgrade is a `git pull` or a fresh copy plus your `overrides` folder, and that's it.
 

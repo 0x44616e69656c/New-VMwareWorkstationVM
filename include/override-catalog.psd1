@@ -7,6 +7,7 @@
         ComputerName = @{
             Target        = 'Parameter'
             Name          = 'ComputerName'
+            ExampleNote   = 'The Windows computer name the VM gets'
             Shipped       = 'WIN2025'
             ShippedReason = 'A short name that says what the VM runs and fits the 15-character NetBIOS limit'
             OverrideNote  = 'build-lab passes it, so in a build-lab run set it in build-lab''s file'
@@ -14,6 +15,7 @@
         CpuCount = @{
             Target        = 'Parameter'
             Name          = 'CpuCount'
+            ExampleNote   = 'How many virtual CPUs the VM gets'
             Shipped       = 2
             ShippedReason = 'Enough for Windows Setup and a lab role without crowding the host'
             OverrideNote  = 'build-lab passes it, so in a build-lab run set it in build-lab''s file'
@@ -21,6 +23,7 @@
         DefaultGateway = @{
             Target        = 'Parameter'
             Name          = 'DefaultGateway'
+            ExampleNote   = 'The default gateway that goes with a static IP address'
             ShippedText   = 'None'
             ShippedReason = 'The gateway differs per host and network, so the script can''t guess one'
             OverrideNote  = 'build-lab passes it when it has one, and then build-lab''s value is used'
@@ -28,6 +31,7 @@
         DiskGB = @{
             Target        = 'Parameter'
             Name          = 'DiskGB'
+            ExampleNote   = 'The size of the operating system disk, in GB'
             Shipped       = 60
             ShippedReason = 'Room for Windows Server 2025 with Desktop Experience and a lab role, on a sparse disk that grows only as it fills'
             OverrideNote  = 'build-lab passes it, so in a build-lab run set it in build-lab''s file'
@@ -35,6 +39,7 @@
         DnsServer = @{
             Target        = 'Parameter'
             Name          = 'DnsServer'
+            ExampleNote   = 'The DNS server that goes with a static IP address'
             Shipped       = '8.8.8.8'
             ShippedReason = 'A public resolver that answers from any network the VM lands on'
             OverrideNote  = 'build-lab passes it, so in a build-lab run set it in build-lab''s file'
@@ -42,6 +47,7 @@
         Edition = @{
             Target        = 'Parameter'
             Name          = 'Edition'
+            ExampleNote   = 'The Windows Server edition that Windows Setup installs'
             Shipped       = 'Standard'
             ShippedReason = 'The edition most lab roles need'
         }
@@ -87,6 +93,7 @@
         LogPath = @{
             Target        = 'Parameter'
             Name          = 'LogPath'
+            ExampleNote   = 'The folder for the CSV log and the full transcript'
             ShippedText   = 'The `logs` folder beside the script'
             ShippedReason = 'The logs stay with the copy of the script that wrote them, wherever it was started from'
             OverrideNote  = 'build-lab passes its own log folder, so in a build-lab run this key isn''t used'
@@ -96,9 +103,11 @@
         NetworkType = @{
             Target        = 'Parameter'
             Name          = 'NetworkType'
+            ExampleNote   = 'The kind of Workstation network the VM''s adapter connects to'
             Shipped       = 'nat'
             ShippedReason = 'NAT gives the VM internet access through the host with no change to the host''s own network'
             OverrideNote  = 'build-lab passes it, so in a build-lab run set it in build-lab''s file'
+            ValuesNote    = 'nat, bridged, hostonly, or VMnet0 to VMnet99 with no leading zero. VMnet0, VMnet1 and VMnet8 are taken as bridged, hostonly and nat. A custom VMnet must already exist. The online check needs a host virtual adapter on it'
         }
         Organization = @{
             Target        = 'Constant'
@@ -111,12 +120,14 @@
         PostSetupDelayMinutes = @{
             Target        = 'Parameter'
             Name          = 'PostSetupDelayMinutes'
+            ExampleNote   = 'How long to wait after the first ping reply before the media is ejected, in minutes'
             Shipped       = 5
             ShippedReason = 'A ping reply can come before the specialize pass and the VMware Tools install finish, so the script waits before it ejects the media'
         }
         ProductKey = @{
             Target        = 'Parameter'
             Name          = 'ProductKey'
+            ExampleNote   = 'The product key for retail or volume license media'
             Secret        = $true
             ShippedText   = 'None'
             ShippedReason = 'Evaluation media installs with no key. Retail and volume license media need one to stay unattended'
@@ -124,6 +135,7 @@
         RamMB = @{
             Target        = 'Parameter'
             Name          = 'RamMB'
+            ExampleNote   = 'The memory the VM gets, in MB'
             Shipped       = 4096
             ShippedReason = 'Comfortable for Windows Server 2025 with Desktop Experience in a lab, and small enough for most hosts'
             OverrideNote  = 'build-lab passes it, so in a build-lab run set it in build-lab''s file'
@@ -131,12 +143,14 @@
         RestartTimeoutMinutes = @{
             Target        = 'Parameter'
             Name          = 'RestartTimeoutMinutes'
+            ExampleNote   = 'The longest wait for the VM to come back online after the drive removal, in minutes'
             Shipped       = 10
             ShippedReason = 'The restart after the drive removal is a plain reboot, much faster than Setup'
         }
         ShowConsole = @{
             Target        = 'Parameter'
             Name          = 'ShowConsole'
+            ExampleNote   = 'Whether the run shows the Workstation console window instead of running headless'
             Shipped       = $false
             ShippedReason = 'A headless run puts no console window in front of you, and the VM still opens in the Workstation library'
             Rule          = @{ Type = 'Boolean' }
@@ -144,12 +158,14 @@
         ShutdownTimeoutMinutes = @{
             Target        = 'Parameter'
             Name          = 'ShutdownTimeoutMinutes'
+            ExampleNote   = 'The longest wait for the soft shutdown before the drive removal, in minutes'
             Shipped       = 5
             ShippedReason = 'Long enough for a soft shutdown of a freshly installed server'
         }
         SubnetMask = @{
             Target        = 'Parameter'
             Name          = 'SubnetMask'
+            ExampleNote   = 'The subnet mask that goes with a static IP address'
             Shipped       = '255.255.255.0'
             ShippedReason = 'Workstation allocates its NAT network as a /24'
             OverrideNote  = 'build-lab passes it, so in a build-lab run set it in build-lab''s file'
@@ -165,6 +181,7 @@
         TempPath = @{
             Target        = 'Parameter'
             Name          = 'TempPath'
+            ExampleNote   = 'The scratch folder for the answer XML and the bootable answer ISO'
             ShippedText   = '`%TEMP%\VMDeploy`'
             ShippedReason = 'A per-user scratch folder the script can always write to'
             OverrideNote  = 'build-lab passes a folder per build, so in a build-lab run this key isn''t used'
@@ -174,6 +191,7 @@
         TimeoutMinutes = @{
             Target        = 'Parameter'
             Name          = 'TimeoutMinutes'
+            ExampleNote   = 'The longest wait for the VM to come online after it starts, in minutes'
             Shipped       = 90
             ShippedReason = 'Covers a full unattended install on a slow host with room to spare'
             OverrideNote  = 'build-lab passes it, so in a build-lab run set it in build-lab''s file'
@@ -181,6 +199,7 @@
         TimeZone = @{
             Target        = 'Parameter'
             Name          = 'TimeZone'
+            ExampleNote   = 'The Windows time zone the guest is set to'
             Shipped       = 'Pacific Standard Time'
             ShippedReason = 'The author''s time zone'
             Rule          = @{ Type = 'String'; MinLength = 1; Description = 'a Windows time zone ID, as `tzutil /l` lists them' }
@@ -196,14 +215,15 @@
         VmName = @{
             Target        = 'Parameter'
             Name          = 'VmName'
+            ExampleNote   = 'The VM folder, VMX and VMDK name, and the name Workstation shows for the VM'
             Shipped       = 'WS2025-Server'
             ShippedReason = 'Names the operating system the VM runs'
             OverrideNote  = 'build-lab passes it, so in a build-lab run set it in build-lab''s file'
         }
     }
     Siblings = @{
-        'build-lab'    = @('AdDomainSourcePath', 'DeploymentTimeoutMinutes', 'DomainJoinTimeoutMinutes', 'EnableEventLogging', 'GuestReadyTimeoutMinutes', 'MaxMemberServerCount', 'MemberCpuCount', 'MemberDiskGB', 'MemberRamMB', 'MemberServerCount', 'VmBuilderScriptPath')
-        'new-AdDomain' = @('CaCommonName', 'CaDatabasePath', 'CaHashAlgorithm', 'CaKeyLength', 'CaLogPath', 'CaValidityYears', 'ComputerCount', 'DnsForwarders', 'DomainMode', 'DomainName', 'DsrmPassword', 'ForestMode', 'GroupCount', 'LaptopPrefix', 'LockoutDurationMinutes', 'LockoutThreshold', 'MaxCompanyCount', 'MaxDA', 'MaxGroupMembers', 'MaxGroupNestingDepth', 'MaxPasswordAgeDays', 'MinCompanyCount', 'MinDA', 'MinGroupMembers', 'MinPasswordLength', 'NetBIOSName', 'NtpServers', 'PasswordHistoryCount', 'PasswordLength', 'PctDisabled', 'PctLocked', 'PctPwExpired', 'PctPwNeverExpires', 'PctRemoteUsers', 'PctSmartcard', 'PrimarySiteName', 'PrimarySubnet', 'RandomSeed', 'RequiredOSBuild', 'ServerPrefix', 'UpnPattern', 'UserCount', 'WorkstationPrefix')
+        'build-lab'    = @('AdDomainSourcePath', 'DeferPopulation', 'DeploymentTimeoutMinutes', 'DomainJoinTimeoutMinutes', 'EnableEventLogging', 'GuestReadyTimeoutMinutes', 'MaxMemberServerCount', 'MemberCpuCount', 'MemberDiskGB', 'MemberRamMB', 'MemberServerCount', 'PopulationTimeoutMinutes', 'VmBuilderScriptPath')
+        'new-AdDomain' = @('CaCommonName', 'CaDatabasePath', 'CaHashAlgorithm', 'CaKeyLength', 'CaLogPath', 'CaValidityYears', 'ComputerCount', 'DnsForwarders', 'DomainAdminCount', 'DomainMode', 'DomainName', 'DsrmPassword', 'ForestMode', 'GroupCount', 'LaptopPrefix', 'LockoutDurationMinutes', 'LockoutThreshold', 'MaxCompanyCount', 'MaxDA', 'MaxGroupMembers', 'MaxGroupNestingDepth', 'MaxPasswordAgeDays', 'MinCompanyCount', 'MinDA', 'MinGroupMembers', 'MinPasswordLength', 'NetBIOSName', 'NtpServers', 'PasswordHistoryCount', 'PasswordLength', 'PctDisabled', 'PctLocked', 'PctPwExpired', 'PctPwNeverExpires', 'PctRemoteUsers', 'PctSmartcard', 'Population', 'PrimarySiteName', 'PrimarySubnet', 'RandomSeed', 'RequiredOSBuild', 'ServerPrefix', 'UpnPattern', 'UserCount', 'WorkstationPrefix')
     }
     Document = @{
         NotCovered = @(
